@@ -1,42 +1,65 @@
 import socket
 import pyfiglet
+from concurrent.futures import ThreadPoolExecutor
 
-nome = "Nome: Romildo (thuf)    Site: helptecinfo.com"
+# Informacoes do script
+script_info = "Nome: Romildo (thuf)    Site: helptecinfo.com"
 
+# Exibindo o banner
 print("\n\n======================================")
 banner = pyfiglet.figlet_format("SCANNER")
 print(banner)
-print(nome)
+print(script_info)
 print("======================================\n")
 
-ip_address = input('Insira o serviço que deseja scannear: ')
-start_port = int(input('Insira a porta inicial: '))
-end_port = int(input('Insira a porta final: '))
+# Recebendo o endereco/IP e validando
+ip_address = input('Insira o endereco ou IP a ser escaneado: ')
+try:
+    resolved_ip = socket.gethostbyname(ip_address)
+except socket.gaierror:
+    print("Erro: Endereco invalido. Verifique o IP ou hostname.")
+    exit()
+
+# Recebendo intervalo de portas e validando
+try:
+    start_port = int(input('Insira a porta inicial (padrao 1): ') or 1)
+    end_port = int(input('Insira a porta final (padrao 1024): ') or 1024)
+    if not (0 <= start_port <= 65535 and 0 <= end_port <= 65535):
+        raise ValueError("As portas devem estar entre 0 e 65535.")
+    if start_port > end_port:
+        raise ValueError("A porta inicial deve ser menor ou igual a porta final.")
+except ValueError as ve:
+    print(f"Erro: {ve}")
+    exit()
+
+def scan_port(ip, port):
+    """Funcao para verificar se uma porta esta aberta"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.5)  # Tempo de espera reduzido
+            if sock.connect_ex((ip, port)) == 0:
+                return port
+    except Exception:
+        pass
+    return None
 
 def scan_ports(ip_address, start_port, end_port):
-    open_ports_count = 0
+    """Funcao principal para escanear portas em threads"""
+    open_ports = []
+    print(f"\nEscaneando {ip_address} ({resolved_ip}) nas portas {start_port}-{end_port}...\n")
 
-    # Faz um loop pelas portas desejadas
-    for port in range(start_port, end_port+1):
-        try:
-            # Cria um novo socket para cada tentativa de conexão
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                # Configura o timeout do socket para 3 segundos
-                sock.settimeout(3)
-                # Tenta se conectar à porta atual
-                result = sock.connect_ex((ip_address, port))
-                if result == 0:
-                    # Se a conexão foi bem-sucedida, a porta está aberta
-                    print(f'Porta {port} está aberta.')
-                    open_ports_count += 1
-        except socket.error as e:
-            print(f"Não foi possível conectar à porta {port}. Erro: {e}")
-            continue
+    with ThreadPoolExecutor(max_workers=100) as executor:
+        futures = [executor.submit(scan_port, ip_address, port) for port in range(start_port, end_port + 1)]
+        for future in futures:
+            port = future.result()
+            if port:
+                open_ports.append(port)
+                print(f"Porta {port} esta aberta.")
 
-    # Verifica se foram encontradas portas abertas
-    if open_ports_count == 0:
-        print('Não foram encontradas portas abertas.')
-    print("")
+    if open_ports:
+        print(f"\nTotal de portas abertas: {len(open_ports)}. Portas: {', '.join(map(str, open_ports))}")
+    else:
+        print("\nNenhuma porta aberta encontrada.")
 
-# Chama a função de verificação de portas
-scan_ports(ip_address, start_port, end_port)
+# Executando o scanner
+scan_ports(resolved_ip, start_port, end_port)
